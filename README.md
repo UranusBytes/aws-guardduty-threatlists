@@ -46,7 +46,7 @@ This is a list that defines the regions that the threatlist will be configured f
 `_AWS_REGIONS = ['us-east-1', 'us-east-2']`
 
 To configure for all regions supported by guardduty, the format would be:
-`_AWS_REGIONS = boto3.session.get_available_regions(service_name='guardduty', partition_name='aws')`
+`_AWS_REGIONS = boto3.Session().get_available_regions(service_name='guardduty', partition_name='aws')`
 
 ## Required IAM Permissions
 The following IAM permissions are required by the IAM user/role used to execute the script.  If the S3 bucket is cross account, if the S3 bucket is using KMS, or different configurations may require different permissions. 

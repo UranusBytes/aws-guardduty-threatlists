@@ -34,8 +34,8 @@ import traceback
 
 # Constants
 ###############################################################################
-_STDERR_OUTPUT_LEVEL = logging.CRITICAL  # Leave at logging.CRITICAL unless doing debugging
-_PRINT_STACKTRACE_ON_ERROR = False  # Show stacktrace to stderr on error
+_STDERR_OUTPUT_LEVEL = logging.DEBUG  # Leave at logging.CRITICAL unless doing debugging
+_PRINT_STACKTRACE_ON_ERROR = True  # Show stacktrace to stderr on error
 # Learn about GuardDuty threat lists https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_upload_lists.html
 _THREATLISTS = [
   {
@@ -45,14 +45,9 @@ _THREATLISTS = [
   }
 ]
 _THREATLIST_S3_BUCKET = 'myBucket'
-_THREATLIST_S3_KEY_PATH = 'threatlists'  # Without trailing or proceeding slash
-_AWS_PROFILE = ''  # Set to None to not use a profile (default, ec2 metadata, env vars, etc...)
-_AWS_REGIONS = boto3.session.get_available_regions(service_name='guardduty', partition_name='aws')
-
-# logging
-###############################################################################
-logging.basicConfig(level=logging.INFO)
-_logger = logging.getLogger('guardduty_threat-list')
+_THREATLIST_S3_KEY_PATH = 'myKeyPath'  # Without trailing or proceeding slash
+_AWS_PROFILE = None  # Set to None to not use a profile (default, ec2 metadata, env vars, etc...)
+_AWS_REGIONS = boto3.Session().get_available_regions(service_name='guardduty', partition_name='aws')
 
 
 # Functions
@@ -89,14 +84,14 @@ def _download_and_decompress_threatlist(_threatlist_url):
     exit(1)
 
 
-def _upload_threatlist(list_name, threatlist):
+def _upload_threatlist(_list_name, _threatlist):
   try:
     _logger.info('Upload threatlist to S3')
-    _s3_client = _get_aws_client('s3')
+    _s3_client = _get_aws_client(_service_name='s3', _aws_region=None)
     _response = _s3_client.put_object(
-      Body=threatlist,
+      Body=_threatlist,
       Bucket=_THREATLIST_S3_BUCKET,
-      Key='{0}/{1}.txt'.format(_THREATLIST_S3_KEY_PATH, list_name)
+      Key='{0}/{1}.txt'.format(_THREATLIST_S3_KEY_PATH, _list_name)
     )
     _logger.debug('Response: {0}'.format(_response))
     return
@@ -106,11 +101,11 @@ def _upload_threatlist(list_name, threatlist):
     exit(1)
 
 
-def _reformat_threatlist(threatlist):
+def _reformat_threatlist(_threatlist):
   try:
     _logger.info('Reformat threat list to TXT format')
     _reformated_threatlist = []
-    for _line in threatlist.splitlines():
+    for _line in _threatlist.splitlines():
       _line_string = _line.decode('utf8').strip()
       if _line_string[:1] == '#':
         # Comment
@@ -127,12 +122,12 @@ def _reformat_threatlist(threatlist):
     exit(1)
 
 
-def _refresh_guardduty_threatlist(list_dict, aws_region):
+def _refresh_guardduty_threatlist(_list_dict, _aws_region):
   try:
     # expects a dictionary representing the threat list.
     # {'list_name':_list_name, 'list_url':_list_url, 'list_format':_list_format}
-    _logger.info('Refresh GuardDuty Threatlist - Region {0}'.format(aws_region))
-    _guardduty_client = _get_aws_client('guardduty')
+    _logger.info('Refresh GuardDuty Threatlist - Region {0}'.format(_aws_region))
+    _guardduty_client = _get_aws_client(_service_name='guardduty', _aws_region=_aws_region)
 
     _response = _guardduty_client.list_detectors(
       MaxResults=10,
@@ -144,15 +139,15 @@ def _refresh_guardduty_threatlist(list_dict, aws_region):
       MaxResults=10,
     )
     if len(_response['ThreatIntelSetIds']) == 0:
-      _logger.warning('No threatlist found in region {0}'.format(aws_region))
+      _logger.warning('No threatlist found in region {0}'.format(_aws_region))
       return
     elif len(_response['ThreatIntelSetIds']) > len(_THREATLISTS):
-      _logger.warning('Region {0} has more threatlists configured than script defines.'.format(aws_region))
+      _logger.warning('Region {0} has more threatlists configured than script defines.'.format(_aws_region))
       return
     _threatIntelSetId = _response['ThreatIntelSetIds'][0]
     _location = "https://s3.amazonaws.com/{0}/{1}/{2}.txt".format(_THREATLIST_S3_BUCKET, _THREATLIST_S3_KEY_PATH,
-                                                                  list_dict['list_name'])
-    _revised_threat_set_name = '{0}_{1}'.format(list_dict['list_name'],
+                                                                  _list_dict['list_name'])
+    _revised_threat_set_name = '{0}_{1}'.format(_list_dict['list_name'],
                                                 datetime.now().strftime("%Y%b%d_%H%M").upper())
     _response = _guardduty_client.update_threat_intel_set(
       Activate=True,
@@ -168,17 +163,17 @@ def _refresh_guardduty_threatlist(list_dict, aws_region):
     exit(1)
 
 
-def _signal_handler(signal, frame):
+def _signal_handler(_signal, _frame):
   print("ERROR: SIGINT received.")
   sys.exit(3)
 
 
-def _get_aws_client(_service_name):
+def _get_aws_client(_service_name, _aws_region):
   try:
     _logger.info('Get AWS client')
-    _session_args = {
-      'region_name': _AWS_REGIONS
-    }
+    _session_args = {}
+    if _aws_region is not None:
+      _session_args['region_name'] = _aws_region
     if _AWS_PROFILE is not None:
       _session_args['profile_name'] = _AWS_PROFILE
 
@@ -222,7 +217,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, _signal_handler)
     _logger = _get_logger()
     _main()
-  except Exception as err:
-    _print_stacktrace(err)
+  except Exception as mainErr:
+    _print_stacktrace(mainErr)
     _logger.critical('Unknown error in main')
     exit(1)
